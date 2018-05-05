@@ -24,9 +24,11 @@ struct treeNode { //FS treeNodes
 	ino_t src_inode;
 	myinode * inode; //ptr to inode
 	listNode * children_head; //list of children
+	treeNode * parent;
 };
 
 
-
-void append(treeNode * target, treeNode * newInode);
+treeNode * makeTreeNode(char * name, int isDir, ino_t src_inode, myinode * inode);
+myinode * makeInode(time_t mtime, off_t size);
+void addChild(treeNode * target, treeNode * newInode);
 
