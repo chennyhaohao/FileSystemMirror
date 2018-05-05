@@ -21,7 +21,7 @@ void traverse(char * name) {
 	char * path;
 	while ((dp = readdir(dirp)) != NULL) {
 		//printf("%s\n", dp->d_name);
-		if (strncmp(dp->d_name, ".", 2) == 0 || strncmp(dp->d_name, "..", 2) == 0) { 
+		if (strcmp(dp->d_name, ".") == 0 || strcmp(dp->d_name, "..") == 0) { 
 			continue; //Skip parent & self to prevent cycle
 		}
 		path = fpath(name, dp->d_name);
@@ -49,6 +49,23 @@ void fcopy(FILE * src, FILE * target) {
 	}
 }
 
+void fcopyByPath(char * src, char * target) {
+	FILE * src_fp, * target_fp;
+	if ( (src_fp = fopen(src, "r")) == NULL) {
+		perror("fopen");
+		exit(1);
+	}
+	
+	if ( (target_fp = fopen(target, "w")) == NULL) {
+		perror("fopen");
+		exit(1);
+	}
+
+	fcopy(src_fp, target_fp);
+	fclose(src_fp);
+	fclose(target_fp);
+}
+
 void r_copy(char * name, char * target, treeNode * root) { //Recursively copy directory
 	DIR * dirp = opendir(name);
 	DIR * tdirp = opendir(target);
@@ -66,7 +83,7 @@ void r_copy(char * name, char * target, treeNode * root) { //Recursively copy di
 
 	while ((dp = readdir(dirp)) != NULL) {
 		//printf("%s\n", dp->d_name);
-		if (strncmp(dp->d_name, ".", 1) == 0 || strncmp(dp->d_name, "..", 2) == 0) { 
+		if (strcmp(dp->d_name, ".") == 0 || strcmp(dp->d_name, "..") == 0) { 
 			continue; //Skip parent & self to prevent cycle
 		}
 
@@ -126,7 +143,7 @@ void createTree(char * name, treeNode * root) { //Recursively copy directory
 
 	while ((dp = readdir(dirp)) != NULL) {
 		//printf("%s\n", dp->d_name);
-		if (strncmp(dp->d_name, ".", 1) == 0 || strncmp(dp->d_name, "..", 2) == 0) { 
+		if (strcmp(dp->d_name, ".") == 0 || strcmp(dp->d_name, "..") == 0) { 
 			continue; //Skip parent & self to prevent cycle
 		}
 
@@ -150,10 +167,104 @@ void createTree(char * name, treeNode * root) { //Recursively copy directory
 	closedir(dirp);
 }
 
+void sync_dir(treeNode * src, treeNode * target) { 
+	if (!src || !target || !src->isDir || !target->isDir ) { //Not dir
+		return;
+	}
+	//struct stat stat_buf;	
+	listNode * lnode = src->children_head;
+	char * path, * tpath;
+	while (lnode != NULL) {
+		//printf("%s\n", dp->d_name);
+		treeNode * src_child = lnode->node, * target_child;
+		path = nodePath(src_child);
+		/*if (stat(path, &stat_buf) < 0) {
+			perror("stat");
+			exit(1);
+		}*/
+		//free(path);
+
+		target_child = searchListByName(target->children_head, src_child->name);
+
+		if (target_child == NULL) { //Not found in target dir; create new node in target
+			myinode * inode = makeInode(src_child->inode->mtime, src_child->inode->size); //Create child inode
+			target_child = makeTreeNode(src_child->name, src_child->isDir, src_child->src_inode, inode); //Create child treeNode
+			addChild(target, target_child);
+			tpath = nodePath(target_child);
+			printf("Creating new node: %s\n", tpath);
+
+			if (!src_child->isDir) { //is file
+				fcopyByPath(path, tpath); //Copy file	
+			} else { //is dir
+				if (mkdir(tpath, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) { //create dir
+					perror("mkdir");
+					exit(1);
+				}
+			}
+			free(tpath);
+		}
+
+		tpath = nodePath(target_child);
+
+		if (src_child->isDir != target_child->isDir) { //Different types
+			
+			if (target_child->isDir) { //Remove dir
+				printf("Removing directory: %s/\n", tpath);
+				//rmdir(tpath);
+				remove(tpath);
+				fcopyByPath(path, tpath); //Copy file
+			} else { //Remove file
+				printf("Removing file: %s\n", tpath);
+				remove(tpath);
+				if (mkdir(tpath, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) { //create dir
+					perror("mkdir");
+					exit(1);
+				}
+			}
+			
+			free(tpath);
+			free(path);
+			myinode * inode = makeInode(src_child->inode->mtime, src_child->inode->size);
+			target_child->inode = inode;
+			target_child->isDir = src_child->isDir;
+			target_child->children_head = NULL;
+		} else if(!src_child->isDir && !target_child->isDir) { //Both are files
+			if (target_child->inode->mtime < src_child->inode->mtime || 
+				target_child->inode->size != src_child->inode->size) {
+				//Update file
+				if (target_child->inode->mtime < src_child->inode->mtime) {
+					printf("Last modified smaller\n");
+				}
+
+				printf("Updating file: %s\n", tpath);
+				fcopyByPath(path, tpath);
+			}
+		}
+
+		free(path);
+		free(tpath);
+
+		sync_dir(src_child, target_child); //Sync after finding/creating the target node
+
+		lnode = lnode->next;
+	}
+}
+
 int main() {
-	treeNode * root = makeTreeNode("./src", 1, 0, NULL);
+	char * srcDir = "./src";
+	char * targetDir = "./mirror";
+	treeNode * src = makeTreeNode(srcDir, 1, 0, NULL);
+	treeNode * target = makeTreeNode(targetDir, 1, 0, NULL);
 	//r_copy("./src", "./mirror", root);
-	createTree("./src", root);
-	printTree(root);
+	createTree(srcDir, src);
+	createTree(targetDir, target);	
+	//printTree(src);
+	printf("\n-----\n");
+	printTree(target);
+	printf("\n-----\n");
+	sync_dir(src, target);
+
+	printTree(target);
+
 	return 0;
 }

@@ -74,3 +74,22 @@ void printTree(treeNode * root) {
 		lnode = lnode->next;
 	}
 }
+
+treeNode * searchListByName(listNode * head, char * name) {
+	if (head == NULL) return NULL;
+	//printf("head name: %s; searching for: %s\n", head->node->name, name);
+	if (strcmp(head->node->name, name) == 0) return head->node;
+	return searchListByName(head->next, name);
+}
+
+listNode * deleteNodeFromList(listNode * head, treeNode * target) { //Remove node and return new head
+	if (head == NULL) return NULL;
+	if (head->node == target) { //Found target
+		free(target);
+		listNode * result = head->next;
+		free(head);
+		return result;
+	}
+	head->next = deleteNodeFromList(head->next, target); //Recursively delete
+	return head;
+}

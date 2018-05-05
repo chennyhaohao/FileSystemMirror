@@ -33,4 +33,6 @@ myinode * makeInode(time_t mtime, off_t size);
 void addChild(treeNode * target, treeNode * newInode);
 char * nodePath(treeNode * node);
 void printTree(treeNode * root);
+treeNode * searchListByName(listNode * head, char * name);
+listNode * deleteNodeFromList(listNode * head, treeNode * target);
 
