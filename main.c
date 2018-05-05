@@ -167,14 +167,14 @@ void createTree(char * name, treeNode * root) { //Recursively copy directory
 	closedir(dirp);
 }
 
-void sync_dir(treeNode * src, treeNode * target) { 
+void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) { 
 	if (!src || !target || !src->isDir || !target->isDir ) { //Not dir
 		return;
 	}
 	//struct stat stat_buf;	
 	listNode * lnode = src->children_head;
 	char * path, * tpath;
-	while (lnode != NULL) {
+	while (lnode != NULL) { //Loop through children of src node
 		//printf("%s\n", dp->d_name);
 		treeNode * src_child = lnode->node, * target_child;
 		path = nodePath(src_child);
@@ -189,12 +189,26 @@ void sync_dir(treeNode * src, treeNode * target) {
 		if (target_child == NULL) { //Not found in target dir; create new node in target
 			myinode * inode = makeInode(src_child->inode->mtime, src_child->inode->size); //Create child inode
 			target_child = makeTreeNode(src_child->name, src_child->isDir, src_child->src_inode, inode); //Create child treeNode
+			treeNode * result = NULL;
+			if (!src_child->isDir) {
+				result = searchTreeByInode(targetRoot, src_child->src_inode);
+			}
 			addChild(target, target_child);
 			tpath = nodePath(target_child);
 			printf("Creating new node: %s\n", tpath);
 
 			if (!src_child->isDir) { //is file
-				fcopyByPath(path, tpath); //Copy file	
+				if (result != NULL) { //inode already exists, must be hard link
+					char * lpath = nodePath(result);
+					printf("Creating hard link from %s to %s\n", tpath, lpath);
+					if (link(lpath, tpath) == -1) { //Create link
+						perror("link");
+						exit(1);
+					}
+					free(lpath);
+				} else { //Create file
+					fcopyByPath(path, tpath); //Copy file
+				}
 			} else { //is dir
 				if (mkdir(tpath, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) { //create dir
 					perror("mkdir");
@@ -232,9 +246,9 @@ void sync_dir(treeNode * src, treeNode * target) {
 			if (target_child->inode->mtime < src_child->inode->mtime || 
 				target_child->inode->size != src_child->inode->size) {
 				//Update file
-				if (target_child->inode->mtime < src_child->inode->mtime) {
+				/*if (target_child->inode->mtime < src_child->inode->mtime) {
 					printf("Last modified smaller\n");
-				}
+				}*/
 
 				printf("Updating file: %s\n", tpath);
 				fcopyByPath(path, tpath);
@@ -244,11 +258,14 @@ void sync_dir(treeNode * src, treeNode * target) {
 		free(path);
 		free(tpath);
 
-		sync_dir(src_child, target_child); //Sync after finding/creating the target node
+		sync_dir(src_child, target_child, targetRoot); //Sync after finding/creating the target node
 
 		lnode = lnode->next;
-	}
+	} 
+
 }
+
+
 
 int main() {
 	char * srcDir = "./src";
@@ -262,7 +279,7 @@ int main() {
 	printf("\n-----\n");
 	printTree(target);
 	printf("\n-----\n");
-	sync_dir(src, target);
+	sync_dir(src, target, target);
 
 	printTree(target);
 

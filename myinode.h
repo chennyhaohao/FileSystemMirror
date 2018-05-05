@@ -34,5 +34,6 @@ void addChild(treeNode * target, treeNode * newInode);
 char * nodePath(treeNode * node);
 void printTree(treeNode * root);
 treeNode * searchListByName(listNode * head, char * name);
+treeNode * searchTreeByInode(treeNode * root, ino_t inode_num);
 listNode * deleteNodeFromList(listNode * head, treeNode * target);
 

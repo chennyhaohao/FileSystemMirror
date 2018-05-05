@@ -82,6 +82,21 @@ treeNode * searchListByName(listNode * head, char * name) {
 	return searchListByName(head->next, name);
 }
 
+treeNode * searchTreeByInode(treeNode * root, ino_t inode_num) {
+	if (root == NULL) return NULL;
+	if (root->src_inode == inode_num) {
+		return root;
+	}
+	listNode * lnode = root->children_head;
+	treeNode * result;
+	while (lnode != NULL) {
+		result = searchTreeByInode(lnode->node, inode_num);
+		if (result != NULL) return result;
+		lnode = lnode->next; 
+	}
+	return NULL;
+}
+
 listNode * deleteNodeFromList(listNode * head, treeNode * target) { //Remove node and return new head
 	if (head == NULL) return NULL;
 	if (head->node == target) { //Found target
