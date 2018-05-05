@@ -27,8 +27,10 @@ struct treeNode { //FS treeNodes
 	treeNode * parent;
 };
 
-
+char * fpath(char * dir, char * fname);
 treeNode * makeTreeNode(char * name, int isDir, ino_t src_inode, myinode * inode);
 myinode * makeInode(time_t mtime, off_t size);
 void addChild(treeNode * target, treeNode * newInode);
+char * nodePath(treeNode * node);
+void printTree(treeNode * root);
 

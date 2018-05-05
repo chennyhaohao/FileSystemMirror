@@ -9,14 +9,7 @@
 #include "myinode.h"
 #include <dirent.h>
 
-char * fpath(char * dir, char * fname) {
-	int len = strlen(dir) + strlen(fname);
-	char * dest = (char *) malloc(sizeof(char) * (len + 3) );
-	strcpy(dest, dir);
-	strcat(dest, "/");
-	strcat(dest, fname);
-	return dest;
-}
+
 
 void traverse(char * name) {
 	DIR * dirp = opendir(name);
@@ -122,6 +115,6 @@ void r_copy(char * name, char * target, treeNode * root) { //Recursively copy di
 int main() {
 	treeNode * root = makeTreeNode(".", 1, 0, NULL);
 	r_copy("./src", "./mirror", root);
-
+	printTree(root);
 	return 0;
 }
