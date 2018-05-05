@@ -41,6 +41,46 @@ void traverse(char * name) {
 	closedir(dirp);
 }
 
+void r_remove(char * name) {
+	struct stat stat_buf;
+	if (stat(name, &stat_buf) < 0) {
+		perror("stat");
+		exit(1);
+	}
+
+	if ((stat_buf.st_mode & S_IFMT) != S_IFDIR ) { //is file
+		printf("Removing: %s\n", name);
+		if (remove(name) == -1) {
+			perror("remove");
+			exit(1);
+		}
+		return;
+	}
+
+	//is directory
+
+	DIR * dirp = opendir(name);
+	if (dirp == NULL) {
+		perror("opendir");
+		exit(1);
+	}
+	struct dirent * dp;
+	char * path;
+	while ((dp = readdir(dirp)) != NULL) {
+		//printf("%s\n", dp->d_name);
+		if (strcmp(dp->d_name, ".") == 0 || strcmp(dp->d_name, "..") == 0) { 
+			continue; //Skip parent & self to prevent cycle
+		}
+		path = fpath(name, dp->d_name);
+		r_remove(path);
+		free(path);
+	}
+	closedir(dirp);
+	printf("Removing: %s\n", name);
+	remove(name);
+}
+
+
 void fcopy(FILE * src, FILE * target) {
 	int nread;
 	char * buf[1025];
@@ -225,7 +265,7 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 			if (target_child->isDir) { //Remove dir
 				printf("Removing directory: %s/\n", tpath);
 				//rmdir(tpath);
-				remove(tpath);
+				r_remove(tpath);
 				fcopyByPath(path, tpath); //Copy file
 			} else { //Remove file
 				printf("Removing file: %s\n", tpath);
@@ -262,9 +302,23 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 
 		lnode = lnode->next;
 	} 
-
+	lnode = target->children_head;
+	while (lnode != NULL) {
+		int rm = 0;
+		treeNode * target_child = lnode->node;
+		if (searchListByName(src->children_head, target_child->name) == NULL) { //Entry doesn't exist
+			rm = 1;
+			tpath = nodePath(target_child);
+			printf("Removing file/directory: %s\n", tpath);
+			r_remove(tpath);
+			free(tpath);
+		}
+		lnode = lnode->next;
+		if (rm) {
+			target->children_head = deleteNodeFromList(target->children_head, target_child);
+		}
+	}
 }
-
 
 
 int main() {
