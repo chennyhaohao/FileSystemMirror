@@ -110,11 +110,50 @@ void r_copy(char * name, char * target, treeNode * root) { //Recursively copy di
 	closedir(dirp);
 }
 
+void createTree(char * name, treeNode * root) { //Recursively copy directory
+	DIR * dirp = opendir(name);
+	if (dirp == NULL) {
+		perror("opendir");
+		exit(1);
+	}
+	struct dirent * dp;
+	char * path;
+	struct stat stat_buf;
+	if (stat(name, &stat_buf) < 0) {
+		perror("stat");
+		exit(1);
+	}
 
+	while ((dp = readdir(dirp)) != NULL) {
+		//printf("%s\n", dp->d_name);
+		if (strncmp(dp->d_name, ".", 1) == 0 || strncmp(dp->d_name, "..", 2) == 0) { 
+			continue; //Skip parent & self to prevent cycle
+		}
+
+		path = fpath(name, dp->d_name);
+		if (stat(path, &stat_buf) < 0) {
+			perror("stat");
+			exit(1);
+		}
+
+		myinode * inode = makeInode(stat_buf.st_mtime, stat_buf.st_size); //Create child inode
+		treeNode * node;
+		if ((stat_buf.st_mode & S_IFMT) == S_IFDIR ) { //is directory
+			node = makeTreeNode(dp->d_name, 1, stat_buf.st_ino, inode); //Create child treeNode
+			createTree(path, node);
+		} else {
+			node = makeTreeNode(dp->d_name, 0, stat_buf.st_ino, inode);
+		}
+		addChild(root, node);
+		free(path);
+	}
+	closedir(dirp);
+}
 
 int main() {
-	treeNode * root = makeTreeNode(".", 1, 0, NULL);
-	r_copy("./src", "./mirror", root);
+	treeNode * root = makeTreeNode("./src", 1, 0, NULL);
+	//r_copy("./src", "./mirror", root);
+	createTree("./src", root);
 	printTree(root);
 	return 0;
 }
