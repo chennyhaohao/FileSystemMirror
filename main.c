@@ -204,7 +204,8 @@ void createTree(char * name, treeNode * root, treeNode * globalRoot) { //Recursi
 			treeNode * result = searchTreeByInode(globalRoot, stat_buf.st_ino); 
 			if (result) { //Inode already exists
 				printf("Hard link detected: %s\n", nodePath(result));
-				inode = result->inode; //Use the same inode in case of hard linik
+				inode = result->inode; //Give the same inode in case of hard link
+				//so that updates to the same file is automatically reflected in all nodes
 			} else {
 				inode = makeInode(stat_buf.st_mtime, stat_buf.st_size);
 			}
@@ -236,6 +237,23 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 
 		target_child = searchListByName(target->children_head, src_child->name);
 
+		if (target_child && (src_child->isDir != target_child->isDir)) { //Different types
+			tpath = nodePath(target_child);
+			printf("Different type: %s %s\n", path, tpath);
+			if (target_child->isDir) { //Remove dir
+				printf("Removing directory: %s/\n", tpath);
+				//rmdir(tpath);
+				r_remove(tpath);
+			} else { //Remove file
+				printf("Removing file: %s\n", tpath);
+				remove(tpath);
+			}
+			
+			target->children_head = deleteNodeFromList(target->children_head, target_child);
+			target_child = NULL;
+			free(tpath);
+		}
+
 		if (target_child == NULL) { //Not found in target dir; create new node in target
 			myinode * inode; 
 			treeNode * result = NULL;
@@ -243,7 +261,7 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 				result = searchTreeByInode(targetRoot, src_child->src_inode);
 			}
 			if (result) { //if inode already exists
-				inode = result->inode; //hard link using the same inode
+				inode = result->inode; //hard link, give the same inode
 			} else {
 				inode = makeInode(src_child->inode->mtime, src_child->inode->size); 
 				//Create new child inode
@@ -276,32 +294,9 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 			free(tpath);
 		}
 
+		
 		tpath = nodePath(target_child);
-
-		if (src_child->isDir != target_child->isDir) { //Different types
-			
-			if (target_child->isDir) { //Remove dir
-				printf("Removing directory: %s/\n", tpath);
-				//rmdir(tpath);
-				r_remove(tpath);
-				fcopyByPath(path, tpath); //Copy file
-			} else { //Remove file
-				printf("Removing file: %s\n", tpath);
-				remove(tpath);
-				if (mkdir(tpath, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) { //create dir
-					perror("mkdir");
-					exit(1);
-				}
-			}
-			
-			free(tpath);
-			free(path);
-			myinode * inode = makeInode(src_child->inode->mtime, src_child->inode->size);
-			target_child->inode = inode;
-			target_child->isDir = src_child->isDir;
-			target_child->children_head = NULL;
-
-		} else if(!src_child->isDir && !target_child->isDir) { //Both are files
+		if(!src_child->isDir && !target_child->isDir) { //Both are files
 			if (target_child->inode->mtime < src_child->inode->mtime || 
 				target_child->inode->size != src_child->inode->size) {
 				//Update file
@@ -311,7 +306,7 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 
 				printf("Updating file: %s\n", tpath);
 				fcopyByPath(path, tpath);
-				target_child->inode->mtime = time(NULL);
+				target_child->inode->mtime = time(NULL); //Update inode info
 				target_child->inode->size = src_child->inode->size;
 			}
 		}
