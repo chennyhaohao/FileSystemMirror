@@ -63,9 +63,9 @@ char * nodePath(treeNode * node) {
 void printTree(treeNode * root) {
 	char * name = nodePath(root);
 	if (root->isDir) {
-		printf("%s/\n", name);
+		printf("%s %ld/\n", name, root->src_inode);
 	} else {
-		printf("%s\n", name);
+		printf("%s %ld\n", name, root->src_inode);
 	}
 	free(name);
 	listNode * lnode = root->children_head;

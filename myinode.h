@@ -25,6 +25,7 @@ struct treeNode { //FS treeNodes
 	myinode * inode; //ptr to inode
 	listNode * children_head; //list of children
 	treeNode * parent;
+	treeNode * mirror;
 };
 
 char * fpath(char * dir, char * fname);

@@ -41,7 +41,7 @@ void traverse(char * name) {
 	closedir(dirp);
 }
 
-void r_remove(char * name) {
+void r_remove(char * name) { //Recursively remove directory/file
 	struct stat stat_buf;
 	if (stat(name, &stat_buf) < 0) {
 		perror("stat");
@@ -167,7 +167,7 @@ void r_copy(char * name, char * target, treeNode * root) { //Recursively copy di
 	closedir(dirp);
 }
 
-void createTree(char * name, treeNode * root) { //Recursively copy directory
+void createTree(char * name, treeNode * root, treeNode * globalRoot) { //Recursively copy directory
 	DIR * dirp = opendir(name);
 	if (dirp == NULL) {
 		perror("opendir");
@@ -193,15 +193,25 @@ void createTree(char * name, treeNode * root) { //Recursively copy directory
 			exit(1);
 		}
 
-		myinode * inode = makeInode(stat_buf.st_mtime, stat_buf.st_size); //Create child inode
+		myinode * inode;  //Create child inode
 		treeNode * node;
 		if ((stat_buf.st_mode & S_IFMT) == S_IFDIR ) { //is directory
+			inode = makeInode(stat_buf.st_mtime, stat_buf.st_size);
 			node = makeTreeNode(dp->d_name, 1, stat_buf.st_ino, inode); //Create child treeNode
-			createTree(path, node);
-		} else {
+			addChild(root, node); //Need to add child to the structure first for search
+			createTree(path, node, globalRoot);
+		} else { //is file, first search inode in whole tree
+			treeNode * result = searchTreeByInode(globalRoot, stat_buf.st_ino); 
+			if (result) { //Inode already exists
+				printf("Hard link detected: %s\n", nodePath(result));
+				inode = result->inode; //Use the same inode in case of hard linik
+			} else {
+				inode = makeInode(stat_buf.st_mtime, stat_buf.st_size);
+			}
 			node = makeTreeNode(dp->d_name, 0, stat_buf.st_ino, inode);
+			addChild(root, node);
 		}
-		addChild(root, node);
+		
 		free(path);
 	}
 	closedir(dirp);
@@ -227,12 +237,20 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 		target_child = searchListByName(target->children_head, src_child->name);
 
 		if (target_child == NULL) { //Not found in target dir; create new node in target
-			myinode * inode = makeInode(src_child->inode->mtime, src_child->inode->size); //Create child inode
-			target_child = makeTreeNode(src_child->name, src_child->isDir, src_child->src_inode, inode); //Create child treeNode
+			myinode * inode; 
 			treeNode * result = NULL;
-			if (!src_child->isDir) {
+			if (!src_child->isDir) { //is file
 				result = searchTreeByInode(targetRoot, src_child->src_inode);
 			}
+			if (result) { //if inode already exists
+				inode = result->inode; //hard link using the same inode
+			} else {
+				inode = makeInode(src_child->inode->mtime, src_child->inode->size); 
+				//Create new child inode
+			}
+
+			target_child = makeTreeNode(src_child->name, src_child->isDir, 
+				src_child->src_inode, inode); //Create child treeNode			
 			addChild(target, target_child);
 			tpath = nodePath(target_child);
 			printf("Creating new node: %s\n", tpath);
@@ -282,6 +300,7 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 			target_child->inode = inode;
 			target_child->isDir = src_child->isDir;
 			target_child->children_head = NULL;
+
 		} else if(!src_child->isDir && !target_child->isDir) { //Both are files
 			if (target_child->inode->mtime < src_child->inode->mtime || 
 				target_child->inode->size != src_child->inode->size) {
@@ -292,12 +311,17 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 
 				printf("Updating file: %s\n", tpath);
 				fcopyByPath(path, tpath);
+				target_child->inode->mtime = time(NULL);
+				target_child->inode->size = src_child->inode->size;
 			}
 		}
 
 		free(path);
 		free(tpath);
 
+		target_child->src_inode = src_child->src_inode; //link src inode with target node
+		target_child->mirror = src_child;
+		src_child->mirror = target_child; //establish link between src and target node
 		sync_dir(src_child, target_child, targetRoot); //Sync after finding/creating the target node
 
 		lnode = lnode->next;
@@ -327,8 +351,8 @@ int main() {
 	treeNode * src = makeTreeNode(srcDir, 1, 0, NULL);
 	treeNode * target = makeTreeNode(targetDir, 1, 0, NULL);
 	//r_copy("./src", "./mirror", root);
-	createTree(srcDir, src);
-	createTree(targetDir, target);	
+	createTree(srcDir, src, src);
+	createTree(targetDir, target, target);	
 	//printTree(src);
 	printf("\n-----\n");
 	printTree(target);
