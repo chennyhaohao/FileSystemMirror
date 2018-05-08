@@ -8,7 +8,7 @@
 #include <sys/stat.h>
 #include "myinode.h"
 #include <dirent.h>
-
+#include "./inotify-utils.h"
 
 
 void traverse(char * name) {
@@ -167,6 +167,26 @@ void r_copy(char * name, char * target, treeNode * root) { //Recursively copy di
 	closedir(dirp);
 }
 
+void addEntry(char * name, struct stat stat_buf, treeNode * globalRoot) {
+	if ((stat_buf.st_mode & S_IFMT) == S_IFDIR ) { //is directory
+		inode = makeInode(stat_buf.st_mtime, stat_buf.st_size);
+		node = makeTreeNode(dp->d_name, 1, stat_buf.st_ino, inode); //Create child treeNode
+		addChild(root, node); //Need to add child to the structure first for search
+		createTree(path, node, globalRoot);
+	} else { //is file, first search inode in whole tree
+		treeNode * result = searchTreeByInode(globalRoot, stat_buf.st_ino); 
+		if (result) { //Inode already exists
+			printf("Hard link detected: %s\n", nodePath(result));
+			inode = result->inode; //Give the same inode in case of hard link
+			//so that updates to the same file is automatically reflected in all nodes
+		} else {
+			inode = makeInode(stat_buf.st_mtime, stat_buf.st_size);
+		}
+		node = makeTreeNode(dp->d_name, 0, stat_buf.st_ino, inode);
+		addChild(root, node);
+	}
+}
+
 void createTree(char * name, treeNode * root, treeNode * globalRoot) { //Recursively copy directory
 	DIR * dirp = opendir(name);
 	if (dirp == NULL) {
@@ -218,6 +238,8 @@ void createTree(char * name, treeNode * root, treeNode * globalRoot) { //Recursi
 	closedir(dirp);
 }
 
+
+
 void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) { 
 	if (!src || !target || !src->isDir || !target->isDir ) { //Not dir
 		return;
@@ -248,17 +270,7 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 				printf("Different type: %s %s\n", path, tpath);
 			else
 				printf("Removing for update: %s\n", tpath);
-			/*if (target_child->isDir) { //Remove dir
-				printf("Removing directory: %s/\n", tpath);
-				//rmdir(tpath);
-				r_remove(tpath);
-			} else { //Remove file
-				printf("Removing file: %s\n", tpath);
-				remove(tpath);
-			}
-			
-			target->children_head = removeNodeFromList(target->children_head, target_child);
-			deleteNode(target_child);*/
+
 			removeNodeAndEntry(target_child);
 			target_child = NULL; //As if node was not found
 			free(tpath);
@@ -305,25 +317,7 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 			free(tpath);
 		}
 
-		
-		tpath = nodePath(target_child);
-		/*if(!src_child->isDir && !target_child->isDir) { //Both are files
-			if (target_child->inode->mtime < src_child->inode->mtime || 
-				target_child->inode->size != src_child->inode->size) {
-				//Update file
-				/*if (target_child->inode->mtime < src_child->inode->mtime) {
-					printf("Last modified smaller\n");
-				}
-
-				printf("Updating file: %s\n", tpath);
-				fcopyByPath(path, tpath);
-				target_child->inode->mtime = time(NULL); //Update inode info
-				target_child->inode->size = src_child->inode->size;
-			}
-		}*/
-
 		free(path);
-		free(tpath);
 
 		target_child->src_inode = src_child->src_inode; //link src inode with target node
 		target_child->mirror = src_child;
@@ -337,18 +331,36 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 		treeNode * target_child = lnode->node;
 		lnode = lnode->next;
 		if (searchListByName(src->children_head, target_child->name) == NULL) { //Entry doesn't exist
-			/*tpath = nodePath(target_child);
-			printf("Removing file/directory: %s\n", tpath);
-			r_remove(tpath);
-			free(tpath);
-		
-			target->children_head = removeNodeFromList(target->children_head, target_child);
-			deleteNode(target_child);*/
 			removeNodeAndEntry(target_child);
 		}
 	}
 }
 
+int watchTree(int fd, treeNode * root, treeNode **wd_map) {
+	if (root == NULL) return;
+
+	int wd, watched = 0;
+	char * path = nodePath(root);
+	listNode * lnode = root->children_head;
+	wd = inotify_add_watch(fd, path, IN_ALL_EVENTS);
+	if( wd == -1 ) {
+		printf("failed to add watch %s\n", path);
+	} else {
+		printf("Watching %s as %i\n", path, wd);
+		watched++;
+		wd_map[wd] = root;
+	}
+	free(path);
+	while (lnode != NULL) {
+		if (lnode->node->isDir) { //if child is directory, add child to watich
+			watched += watchTree(fd, lnode->node, wd_map);
+		}
+		lnode = lnode->next;
+	}
+	return watched;
+}
+
+treeNode * wd_to_node[4097]; //may have to change to linked list
 
 int main() {
 	char * srcDir = "./src";
@@ -366,5 +378,75 @@ int main() {
 
 	printTree(target);
 
+	int length, read_ptr, read_offset; //management of variable length events
+	int i, watched;
+	int fd, wd;					// descriptors returned from inotify subsystem
+	char buffer[EVENT_BUF_LEN];	//the buffer to use for reading the events
+	treeNode * node;
+	struct stat stat_buf;
+
+	fd = inotify_init();
+	if (fd < 0)
+		fail("inotify_init");
+
+	watched = watchTree(fd, src, wd_to_node);
+	printf("Watched %d directories\n", watched);
+
+	read_offset = 0; //remaining number of bytes from previous read
+	while (1) {
+		/* read next series of events */
+		length = read(fd, buffer + read_offset, sizeof(buffer) - read_offset);
+		if (length < 0)
+			fail("read");
+		length += read_offset; // if there was an offset, add it to the number of bytes to process
+		read_ptr = 0;
+		
+		// process each event
+		// make sure at least the fixed part of the event in included in the buffer
+		while (read_ptr + EVENT_SIZE <= length ) { 
+			//point event to beginning of fixed part of next inotify_event structure
+			struct inotify_event *event = (struct inotify_event *) &buffer[ read_ptr ];
+			
+			// if however the dynamic part exceeds the buffer, 
+			// that means that we cannot fully read all event data and we need to 
+			// deffer processing until next read completes
+			if( read_ptr + EVENT_SIZE + event->len > length ) 
+				break;
+			//event is fully received, process
+			printf("WD:%i %s %s %s COOKIE=%u\n", 
+				event->wd, event_name(event), 
+				target_type(event), target_name(event), event->cookie);
+			node = wd_to_node[event->wd];
+			char * path = nodePath(node);
+			char * tpath = fpath(path, target_name(event));
+			
+			if (strcmp(event_name(event_name), "create") == 0) {
+				printf("File created: %s\n", tpath);
+				if (stat(tpath, &stat_buf) < 0) {
+					perror("stat");
+					exit(1);
+				}
+
+			}
+
+			free(path);
+			free(tpath);
+
+
+			//advance read_ptr to the beginning of the next event
+			read_ptr += EVENT_SIZE + event->len;
+		}
+		//check to see if a partial event remains at the end
+		if( read_ptr < length ) {
+			//copy the remaining bytes from the end of the buffer to the beginning of it
+			memcpy(buffer, buffer + read_ptr, length - read_ptr);
+			//and signal the next read to begin immediatelly after them			
+			read_offset = length - read_ptr;
+		} else
+			read_offset = 0;
+		
+	}
+
+	close(fd);
 	return 0;
 }
