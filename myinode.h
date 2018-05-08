@@ -10,7 +10,8 @@ struct myinode { //Inode ds
 	time_t mtime; //last modification
 	off_t size; //file size
 	char ** fnames; //symbolic names
-	myinode * replica; 
+	myinode * replica;
+	int references; 
 };
 
 struct listNode { //List of treeNodes ds
@@ -36,5 +37,6 @@ char * nodePath(treeNode * node);
 void printTree(treeNode * root);
 treeNode * searchListByName(listNode * head, char * name);
 treeNode * searchTreeByInode(treeNode * root, ino_t inode_num);
-listNode * deleteNodeFromList(listNode * head, treeNode * target);
+listNode * removeNodeFromList(listNode * head, treeNode * target);
+void deleteNode(treeNode * target);
 

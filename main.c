@@ -237,9 +237,17 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 
 		target_child = searchListByName(target->children_head, src_child->name);
 
-		if (target_child && (src_child->isDir != target_child->isDir)) { //Different types
+		if (target_child && //target is found, and
+			(src_child->isDir != target_child->isDir || //Different types, or
+			(!src_child->isDir && !target_child->isDir && //Both are files, and
+			(target_child->inode->mtime < src_child->inode->mtime || //Content different
+				target_child->inode->size != src_child->inode->size)) ) ) { 
+
 			tpath = nodePath(target_child);
-			printf("Different type: %s %s\n", path, tpath);
+			if (src_child->isDir != target_child->isDir) 
+				printf("Different type: %s %s\n", path, tpath);
+			else
+				printf("Removing for update: %s\n", tpath);
 			if (target_child->isDir) { //Remove dir
 				printf("Removing directory: %s/\n", tpath);
 				//rmdir(tpath);
@@ -249,8 +257,9 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 				remove(tpath);
 			}
 			
-			target->children_head = deleteNodeFromList(target->children_head, target_child);
-			target_child = NULL;
+			target->children_head = removeNodeFromList(target->children_head, target_child);
+			deleteNode(target_child);
+			target_child = NULL; //As if node was not found
 			free(tpath);
 		}
 
@@ -263,7 +272,8 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 			if (result) { //if inode already exists
 				inode = result->inode; //hard link, give the same inode
 			} else {
-				inode = makeInode(src_child->inode->mtime, src_child->inode->size); 
+				//inode = makeInode(src_child->inode->mtime, src_child->inode->size); 
+				inode = makeInode(time(NULL), src_child->inode->size); 
 				//Create new child inode
 			}
 
@@ -296,20 +306,20 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 
 		
 		tpath = nodePath(target_child);
-		if(!src_child->isDir && !target_child->isDir) { //Both are files
+		/*if(!src_child->isDir && !target_child->isDir) { //Both are files
 			if (target_child->inode->mtime < src_child->inode->mtime || 
 				target_child->inode->size != src_child->inode->size) {
 				//Update file
 				/*if (target_child->inode->mtime < src_child->inode->mtime) {
 					printf("Last modified smaller\n");
-				}*/
+				}
 
 				printf("Updating file: %s\n", tpath);
 				fcopyByPath(path, tpath);
 				target_child->inode->mtime = time(NULL); //Update inode info
 				target_child->inode->size = src_child->inode->size;
 			}
-		}
+		}*/
 
 		free(path);
 		free(tpath);
@@ -334,7 +344,8 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 		}
 		lnode = lnode->next;
 		if (rm) {
-			target->children_head = deleteNodeFromList(target->children_head, target_child);
+			target->children_head = removeNodeFromList(target->children_head, target_child);
+			deleteNode(target_child);
 		}
 	}
 }

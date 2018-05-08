@@ -35,6 +35,9 @@ treeNode * makeTreeNode(char * fname, int isDir, ino_t src_inode, myinode * inod
 	node->inode = inode;
 	node->parent= NULL;
 	node->children_head = NULL;
+	if (inode) {
+		inode->references ++; //Increment references count
+	}
 	return node;
 }
 
@@ -42,6 +45,7 @@ myinode * makeInode(time_t mtime, off_t size) {
 	myinode * inode = (myinode *) malloc(sizeof(myinode));
 	inode->mtime = mtime;
 	inode->size = size;
+	inode->references = 0;
 	return inode;
 }
 
@@ -97,14 +101,26 @@ treeNode * searchTreeByInode(treeNode * root, ino_t inode_num) {
 	return NULL;
 }
 
-listNode * deleteNodeFromList(listNode * head, treeNode * target) { //Remove node and return new head
+listNode * removeNodeFromList(listNode * head, treeNode * target) { //Remove node and return new head
 	if (head == NULL) return NULL;
 	if (head->node == target) { //Found target
-		free(target);
+		//free(target);
 		listNode * result = head->next;
 		free(head);
 		return result;
 	}
-	head->next = deleteNodeFromList(head->next, target); //Recursively delete
+	head->next = removeNodeFromList(head->next, target); //Recursively delete
 	return head;
 }
+
+void deleteNode(treeNode * target) {
+	if (!target) return;
+	target->inode->references--; //Decrement inode references count
+	if (target->inode->references == 0) {
+		free(target->inode);
+		printf("No references left, deleting inode\n");
+	}
+	free(target->name);
+	free(target);
+}
+
