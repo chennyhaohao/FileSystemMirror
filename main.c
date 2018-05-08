@@ -11,36 +11,6 @@
 #include "./inotify-utils.h"
 
 
-void traverse(char * name) {
-	DIR * dirp = opendir(name);
-	if (dirp == NULL) {
-		perror("opendir");
-		exit(1);
-	}
-	struct dirent * dp;
-	char * path;
-	while ((dp = readdir(dirp)) != NULL) {
-		//printf("%s\n", dp->d_name);
-		if (strcmp(dp->d_name, ".") == 0 || strcmp(dp->d_name, "..") == 0) { 
-			continue; //Skip parent & self to prevent cycle
-		}
-		path = fpath(name, dp->d_name);
-		struct stat stat_buf;
-		if (stat(path, &stat_buf) < 0) {
-			perror("stat");
-			exit(1);
-		}
-		if ((stat_buf.st_mode & S_IFMT) == S_IFDIR ) { //is directory
-			printf("%s/\n", path);
-			traverse(path);
-		} else {
-			printf("%s\n", path);
-		}
-		free(path);
-	}
-	closedir(dirp);
-}
-
 void r_remove(char * name) { //Recursively remove directory/file
 	struct stat stat_buf;
 	if (stat(name, &stat_buf) < 0) {
@@ -49,7 +19,6 @@ void r_remove(char * name) { //Recursively remove directory/file
 	}
 
 	if ((stat_buf.st_mode & S_IFMT) != S_IFDIR ) { //is file
-		printf("Removing: %s\n", name);
 		if (remove(name) == -1) {
 			perror("remove");
 			exit(1);
@@ -67,7 +36,6 @@ void r_remove(char * name) { //Recursively remove directory/file
 	struct dirent * dp;
 	char * path;
 	while ((dp = readdir(dirp)) != NULL) {
-		//printf("%s\n", dp->d_name);
 		if (strcmp(dp->d_name, ".") == 0 || strcmp(dp->d_name, "..") == 0) { 
 			continue; //Skip parent & self to prevent cycle
 		}
@@ -76,12 +44,11 @@ void r_remove(char * name) { //Recursively remove directory/file
 		free(path);
 	}
 	closedir(dirp);
-	printf("Removing: %s\n", name);
 	remove(name);
 }
 
 
-void fcopy(FILE * src, FILE * target) {
+void fcopy(FILE * src, FILE * target) { //copy file
 	int nread;
 	char * buf[1025];
 	while((nread = fread(buf, sizeof(char), 1024, src)) > 0) {
@@ -106,66 +73,6 @@ void fcopyByPath(char * src, char * target) {
 	fclose(target_fp);
 }
 
-void r_copy(char * name, char * target, treeNode * root) { //Recursively copy directory
-	DIR * dirp = opendir(name);
-	DIR * tdirp = opendir(target);
-	if (dirp == NULL || tdirp == NULL) {
-		perror("opendir");
-		exit(1);
-	}
-	struct dirent * dp;
-	char * path,  *tpath;
-	struct stat stat_buf;
-	if (stat(name, &stat_buf) < 0) {
-		perror("stat");
-		exit(1);
-	}
-
-	while ((dp = readdir(dirp)) != NULL) {
-		//printf("%s\n", dp->d_name);
-		if (strcmp(dp->d_name, ".") == 0 || strcmp(dp->d_name, "..") == 0) { 
-			continue; //Skip parent & self to prevent cycle
-		}
-
-		path = fpath(name, dp->d_name);
-		tpath = fpath(target, dp->d_name);
-		if (stat(path, &stat_buf) < 0) {
-			perror("stat");
-			exit(1);
-		}
-
-		myinode * inode = makeInode(stat_buf.st_mtime, stat_buf.st_size); //Create child inode
-		treeNode * node;
-		if ((stat_buf.st_mode & S_IFMT) == S_IFDIR ) { //is directory
-			node = makeTreeNode(dp->d_name, 1, stat_buf.st_ino, inode); //Create child treeNode
-			printf("%s/\n", path);
-			if (mkdir(tpath, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) {
-				perror("mkdir");
-				exit(1);
-			}
-			r_copy(path, tpath, node);
-		} else {
-			node = makeTreeNode(dp->d_name, 0, stat_buf.st_ino, inode);
-			printf("%s\n", path);
-			FILE * src, * target;
-
-			if ( (src = fopen(path, "r")) == NULL) {
-				perror("fopen");
-				exit(1);
-			}
-			if ( (target = fopen(tpath, "w")) == NULL) {
-				perror("fopen");
-				exit(1);
-			}
-			fcopy(src, target);
-			fclose(src);
-			fclose(target);
-		}
-		addChild(root, node);
-		free(path);
-	}
-	closedir(dirp);
-}
 
 void createTree(char * name, treeNode * root, treeNode * globalRoot) { //Recursively copy directory
 	DIR * dirp = opendir(name);
@@ -182,7 +89,6 @@ void createTree(char * name, treeNode * root, treeNode * globalRoot) { //Recursi
 	}
 
 	while ((dp = readdir(dirp)) != NULL) {
-		//printf("%s\n", dp->d_name);
 		if (strcmp(dp->d_name, ".") == 0 || strcmp(dp->d_name, "..") == 0) { 
 			continue; //Skip parent & self to prevent cycle
 		}
@@ -220,33 +126,27 @@ void createTree(char * name, treeNode * root, treeNode * globalRoot) { //Recursi
 
 
 
-void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) { 
+void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
+	//Sync directory represented by target tree with that represented by src
 	if (!src || !target ) return;
 
 	target->src_inode = src->src_inode; //link src inode with target node
 	target->mirror = src;
 	src->mirror = target; //establish link between src and target node
-	//struct stat stat_buf;	
 	if (!src->isDir || !target->isDir) return; //Not directory
 
 	listNode * lnode = src->children_head;
 	char * path, * tpath;
 	while (lnode != NULL) { //Loop through children of src node
-		//printf("%s\n", dp->d_name);
 		treeNode * src_child = lnode->node, * target_child;
 		path = nodePath(src_child);
-		/*if (stat(path, &stat_buf) < 0) {
-			perror("stat");
-			exit(1);
-		}*/
-		//free(path);
-
+		
 		target_child = searchListByName(target->children_head, src_child->name);
 
 		if (target_child && //target is found, and
 			(src_child->isDir != target_child->isDir || //Different types, or
 			(!src_child->isDir && !target_child->isDir && //Both are files, and
-			nodeOutOfSync(src_child, target_child)) ) ) { 
+			nodeOutOfSync(src_child, target_child)) ) ) { //content is out of sync
 
 			tpath = nodePath(target_child);
 			if (src_child->isDir != target_child->isDir) 
@@ -268,7 +168,6 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 			if (result) { //if inode already exists
 				inode = result->inode; //hard link, give the same inode
 			} else {
-				//inode = makeInode(src_child->inode->mtime, src_child->inode->size); 
 				inode = makeInode(time(NULL), src_child->inode->size); 
 				//Create new child inode
 			}
@@ -321,7 +220,7 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 	}
 }
 
-int watchTree(int fd, treeNode * root, treeNode **wd_map) {
+int watchTree(int fd, treeNode * root, treeNode **wd_map) { //Watch all directories within tree
 	if (root == NULL) return;
 
 	int wd, watched = 0;
@@ -333,11 +232,11 @@ int watchTree(int fd, treeNode * root, treeNode **wd_map) {
 	} else {
 		printf("Watching %s as %i\n", path, wd);
 		watched++;
-		wd_map[wd] = root;
+		wd_map[wd] = root; //Map wd to tree node
 	}
 	free(path);
 	while (lnode != NULL) {
-		if (lnode->node->isDir) { //if child is directory, add child to watich
+		if (lnode->node->isDir) { //if child is directory, recursively add child to watich
 			watched += watchTree(fd, lnode->node, wd_map);
 		}
 		lnode = lnode->next;
@@ -345,7 +244,6 @@ int watchTree(int fd, treeNode * root, treeNode **wd_map) {
 	return watched;
 }
 
-treeNode * wd_to_node[4097]; //may have to change to linked list
 
 int main(int argc, char *argv[]) {
 	char * usage = "./main [source directory] [backup directory]";
@@ -376,6 +274,8 @@ int main(int argc, char *argv[]) {
 	int moved_out = 0, cookie = -1; 
 	treeNode * moved_out_node = NULL;
 	char * moved_out_path = NULL;
+	treeNode * wd_to_node[4097]; //may have to change to linked list
+
 
 	fd = inotify_init(); //Initialize inotify
 	if (fd < 0)
@@ -404,10 +304,8 @@ int main(int argc, char *argv[]) {
 			if( read_ptr + EVENT_SIZE + event->len > length ) 
 				break;
 			//event is fully received, process
-			printf("WD:%i %s %s %s COOKIE=%u\n", 
-				event->wd, event_name(event), 
-				target_type(event), target_name(event), event->cookie);
-			node = wd_to_node[event->wd];
+
+			node = wd_to_node[event->wd]; //Get corresponding node in src tree
 			char * path = nodePath(node), * tpath = NULL;
 			if (target_name(event))
 				tpath = fpath(path, target_name(event));
