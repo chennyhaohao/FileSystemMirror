@@ -224,7 +224,12 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 	if (!src || !target || !src->isDir || !target->isDir ) { //Not dir
 		return;
 	}
+
+	target->src_inode = src->src_inode; //link src inode with target node
+	target->mirror = src;
+	src->mirror = target; //establish link between src and target node
 	//struct stat stat_buf;	
+
 	listNode * lnode = src->children_head;
 	char * path, * tpath;
 	while (lnode != NULL) { //Loop through children of src node
@@ -298,10 +303,7 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 		}
 
 		free(path);
-
-		target_child->src_inode = src_child->src_inode; //link src inode with target node
-		target_child->mirror = src_child;
-		src_child->mirror = target_child; //establish link between src and target node
+		
 		sync_dir(src_child, target_child, targetRoot); //Sync after finding/creating the target node
 
 		lnode = lnode->next;
@@ -413,7 +415,8 @@ int main() {
 					inode = makeInode(stat_buf.st_mtime, stat_buf.st_size);
 					treeNode *newNode = makeTreeNode(fpath("", 
 						target_name(event)), 1, stat_buf.st_ino, inode); //Create child treeNode
-					addChild(node, newNode); 
+					addChild(node, newNode);
+					watchTree(fd, newNode, wd_to_node); 
 				} else { //is file, first search inode in whole tree
 					treeNode * result = searchTreeByInode(src, stat_buf.st_ino); 
 					if (result) { //Inode already exists
@@ -427,7 +430,7 @@ int main() {
 						0, stat_buf.st_ino, inode);
 					addChild(node, newNode);
 				}
-				printTree(node);
+
 				sync_dir(node, node->mirror, target);
 
 			}
