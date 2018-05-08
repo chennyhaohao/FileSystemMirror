@@ -124,3 +124,21 @@ void deleteNode(treeNode * target) {
 	free(target);
 }
 
+void removeNodeAndEntry(treeNode * target) {
+	char * tpath = nodePath(target);
+	treeNode * parent = target->parent;
+	if (target->isDir) { //Remove dir
+		printf("Removing directory: %s/\n", tpath);
+		//rmdir(tpath);	
+	} else { //Remove file
+		printf("Removing file: %s\n", tpath);
+	}
+	r_remove(tpath); //Remove the entry
+	
+	parent->children_head = removeNodeFromList(parent->children_head, target);
+	deleteNode(target); //Remove the tree node
+	free(tpath);
+	printf("Node and entry removed\n");
+}
+
+

@@ -39,4 +39,5 @@ treeNode * searchListByName(listNode * head, char * name);
 treeNode * searchTreeByInode(treeNode * root, ino_t inode_num);
 listNode * removeNodeFromList(listNode * head, treeNode * target);
 void deleteNode(treeNode * target);
+void removeNodeAndEntry(treeNode * target);
 

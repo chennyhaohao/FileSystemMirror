@@ -248,7 +248,7 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 				printf("Different type: %s %s\n", path, tpath);
 			else
 				printf("Removing for update: %s\n", tpath);
-			if (target_child->isDir) { //Remove dir
+			/*if (target_child->isDir) { //Remove dir
 				printf("Removing directory: %s/\n", tpath);
 				//rmdir(tpath);
 				r_remove(tpath);
@@ -258,7 +258,8 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 			}
 			
 			target->children_head = removeNodeFromList(target->children_head, target_child);
-			deleteNode(target_child);
+			deleteNode(target_child);*/
+			removeNodeAndEntry(target_child);
 			target_child = NULL; //As if node was not found
 			free(tpath);
 		}
@@ -333,19 +334,17 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 	} 
 	lnode = target->children_head;
 	while (lnode != NULL) {
-		int rm = 0;
 		treeNode * target_child = lnode->node;
+		lnode = lnode->next;
 		if (searchListByName(src->children_head, target_child->name) == NULL) { //Entry doesn't exist
-			rm = 1;
-			tpath = nodePath(target_child);
+			/*tpath = nodePath(target_child);
 			printf("Removing file/directory: %s\n", tpath);
 			r_remove(tpath);
 			free(tpath);
-		}
-		lnode = lnode->next;
-		if (rm) {
+		
 			target->children_head = removeNodeFromList(target->children_head, target_child);
-			deleteNode(target_child);
+			deleteNode(target_child);*/
+			removeNodeAndEntry(target_child);
 		}
 	}
 }
