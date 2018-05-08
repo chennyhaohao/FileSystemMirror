@@ -35,6 +35,7 @@ treeNode * makeTreeNode(char * fname, int isDir, ino_t src_inode, myinode * inod
 	node->inode = inode;
 	node->parent= NULL;
 	node->children_head = NULL;
+	node->modified = 0;
 	if (inode) {
 		inode->references ++; //Increment references count
 	}
@@ -79,7 +80,7 @@ void printTree(treeNode * root) {
 	}
 }
 
-treeNode * searchListByName(listNode * head, char * name) {
+treeNode * searchListByName(listNode * head, const char * name) {
 	if (head == NULL) return NULL;
 	//printf("head name: %s; searching for: %s\n", head->node->name, name);
 	if (strcmp(head->node->name, name) == 0) return head->node;
@@ -141,4 +142,7 @@ void removeNodeAndEntry(treeNode * target) {
 	printf("Node and entry removed\n");
 }
 
-
+int nodeOutOfSync(treeNode * src, treeNode * target) {
+	return (target->inode->mtime < src->inode->mtime || //Content different
+				target->inode->size != src->inode->size);
+}

@@ -247,8 +247,7 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 		if (target_child && //target is found, and
 			(src_child->isDir != target_child->isDir || //Different types, or
 			(!src_child->isDir && !target_child->isDir && //Both are files, and
-			(target_child->inode->mtime < src_child->inode->mtime || //Content different
-				target_child->inode->size != src_child->inode->size)) ) ) { 
+			nodeOutOfSync(src_child, target_child)) ) ) { 
 
 			tpath = nodePath(target_child);
 			if (src_child->isDir != target_child->isDir) 
@@ -290,6 +289,11 @@ void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) {
 						exit(1);
 					}
 					free(lpath);
+					if (nodeOutOfSync(src_child, target_child)) { //Linked file is still out of sync
+						fcopyByPath(path, tpath); //Copy file
+						target_child->inode->mtime = time(NULL);
+						target_child->inode->size = src_child->inode->size;
+					}
 				} else { //Create file
 					fcopyByPath(path, tpath); //Copy file
 				}
@@ -433,6 +437,27 @@ int main() {
 
 				sync_dir(node, node->mirror, target);
 
+			} else if (strcmp(event_name(event), "modify") == 0) { //Entry modified
+				printf("Entry modified: %s\n", tpath);
+				treeNode * result = searchListByName(node->children_head, target_name(event));
+				if (result && !result->isDir) { //File modified
+					printf("Marking file as modified\n");
+					result->modified = 1;
+				}
+			} else if (strcmp(event_name(event), "close write") == 0) {
+				printf("Entry close write: %s\n", tpath);
+				treeNode * result = searchListByName(node->children_head, target_name(event));
+				if (result && !result->isDir && result->modified) { //File modified and closed
+					printf("Updating file\n");
+					if (stat(tpath, &stat_buf) < 0) {
+						perror("stat");
+						exit(1);
+					}
+					result->inode->mtime = stat_buf.st_mtime;
+					result->inode->size = stat_buf.st_size; //Update inode info
+					result->modified = 0;
+					sync_dir(node, node->mirror, target);
+				}
 			}
 
 			free(path);

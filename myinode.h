@@ -27,6 +27,7 @@ struct treeNode { //FS treeNodes
 	listNode * children_head; //list of children
 	treeNode * parent;
 	treeNode * mirror;
+	int modified;
 };
 
 char * fpath(const char * dir, const char * fname);
@@ -35,9 +36,10 @@ myinode * makeInode(time_t mtime, off_t size);
 void addChild(treeNode * target, treeNode * newInode);
 char * nodePath(treeNode * node);
 void printTree(treeNode * root);
-treeNode * searchListByName(listNode * head, char * name);
+treeNode * searchListByName(listNode * head, const char * name);
 treeNode * searchTreeByInode(treeNode * root, ino_t inode_num);
 listNode * removeNodeFromList(listNode * head, treeNode * target);
 void deleteNode(treeNode * target);
 void removeNodeAndEntry(treeNode * target);
+int nodeOutOfSync(treeNode * src, treeNode * target);
 
