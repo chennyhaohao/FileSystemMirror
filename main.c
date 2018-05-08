@@ -347,21 +347,24 @@ int watchTree(int fd, treeNode * root, treeNode **wd_map) {
 
 treeNode * wd_to_node[4097]; //may have to change to linked list
 
-int main() {
-	char * srcDir = "./src";
-	char * targetDir = "./mirror";
-	treeNode * src = makeTreeNode(srcDir, 1, 0, NULL);
-	treeNode * target = makeTreeNode(targetDir, 1, 0, NULL);
-	//r_copy("./src", "./mirror", root);
-	createTree(srcDir, src, src);
-	createTree(targetDir, target, target);	
-	//printTree(src);
-	printf("\n-----\n");
-	printTree(target);
-	printf("\n-----\n");
-	sync_dir(src, target, target);
+int main(int argc, char *argv[]) {
+	char * usage = "./main [source directory] [backup directory]";
+	if (argc != 3) {
+		printf("%s\n", usage);
+		return -1;
+	}
 
-	printTree(target);
+	char * srcDir = argv[1];
+	char * targetDir = argv[2];
+	treeNode * src = makeTreeNode(srcDir, 1, 0, NULL);
+	treeNode * target = makeTreeNode(targetDir, 1, 0, NULL); 
+
+	createTree(srcDir, src, src); //Create tree structures from src & backup directories
+	createTree(targetDir, target, target);	
+	
+	sync_dir(src, target, target); //Initial syncing
+
+	//can visualize tree with printTree(target);
 
 	int length, read_ptr, read_offset; //management of variable length events
 	int i, watched;
@@ -370,16 +373,15 @@ int main() {
 	treeNode * node;
 	struct stat stat_buf;
 	myinode * inode;
-	int moved_out = 0, cookie = -1;
+	int moved_out = 0, cookie = -1; 
 	treeNode * moved_out_node = NULL;
 	char * moved_out_path = NULL;
 
-	fd = inotify_init();
+	fd = inotify_init(); //Initialize inotify
 	if (fd < 0)
 		fail("inotify_init");
 
-	watched = watchTree(fd, src, wd_to_node);
-	printf("Watched %d directories\n", watched);
+	watched = watchTree(fd, src, wd_to_node); //Watch all directories in src
 
 	read_offset = 0; //remaining number of bytes from previous read
 	while (1) {
@@ -433,7 +435,7 @@ int main() {
 					treeNode *newNode = makeTreeNode(fpath("", 
 						target_name(event)), 1, stat_buf.st_ino, inode); //Create child treeNode
 					addChild(node, newNode);
-					watchTree(fd, newNode, wd_to_node); 
+					watchTree(fd, newNode, wd_to_node); //Watch new directory
 				} else { //is file, first search inode in whole tree
 					treeNode * result = searchTreeByInode(src, stat_buf.st_ino); 
 					if (result) { //Inode already exists
@@ -448,17 +450,15 @@ int main() {
 					addChild(node, newNode);
 				}
 
-				sync_dir(node, node->mirror, target);
+				sync_dir(node, node->mirror, target); //Update backup directory
 
 			} else if (strcmp(event_name(event), "modify") == 0) { //Entry modified
-				printf("Entry modified: %s\n", tpath);
 				treeNode * result = searchListByName(node->children_head, target_name(event));
 				if (result && !result->isDir) { //File modified
 					printf("Marking file as modified\n");
-					result->modified = 1;
+					result->modified = 1; //Mark node as modified
 				}
 			} else if (strcmp(event_name(event), "close write") == 0) {
-				printf("Entry close write: %s\n", tpath);
 				treeNode * result = searchListByName(node->children_head, target_name(event));
 				if (result && !result->isDir && result->modified) { //File modified and closed
 					printf("Updating file\n");
@@ -495,7 +495,7 @@ int main() {
 				moved_out = 1;
 				cookie = event->cookie;
 				moved_out_node = searchListByName(node->children_head, target_name(event));
-			} else if (strcmp(event_name(event), "moved into") == 0) {
+			} else if (strcmp(event_name(event), "moved into") == 0) { //Entry moved within src
 				printf("Entry moved within src\n");
 				treeNode * parent = moved_out_node->parent;
 				if (parent) { //Detach from original parent
@@ -505,8 +505,6 @@ int main() {
 				addChild(node, moved_out_node); //Attach to new position
 				sync_dir(node, node->mirror, target);
 			}
-
-			
 
 			if (strcmp(event_name(event), "moved out") != 0 && moved_out) { //Last event was moved out
 				moved_out = 0;
