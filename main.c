@@ -221,14 +221,13 @@ void createTree(char * name, treeNode * root, treeNode * globalRoot) { //Recursi
 
 
 void sync_dir(treeNode * src, treeNode * target, treeNode * targetRoot) { 
-	if (!src || !target || !src->isDir || !target->isDir ) { //Not dir
-		return;
-	}
+	if (!src || !target ) return;
 
 	target->src_inode = src->src_inode; //link src inode with target node
 	target->mirror = src;
 	src->mirror = target; //establish link between src and target node
 	//struct stat stat_buf;	
+	if (!src->isDir || !target->isDir) return; //Not directory
 
 	listNode * lnode = src->children_head;
 	char * path, * tpath;
@@ -371,6 +370,9 @@ int main() {
 	treeNode * node;
 	struct stat stat_buf;
 	myinode * inode;
+	int moved_out = 0, cookie = -1;
+	treeNode * moved_out_node = NULL;
+	char * moved_out_path = NULL;
 
 	fd = inotify_init();
 	if (fd < 0)
@@ -407,8 +409,19 @@ int main() {
 			char * path = nodePath(node), * tpath = NULL;
 			if (target_name(event))
 				tpath = fpath(path, target_name(event));
+
+			if (moved_out && (strcmp(event_name(event), "moved into")!=0 || cookie!=event->cookie)) {
+				printf("Entry moved out of src\n");
+				treeNode * parent = moved_out_node->parent;
+				if (parent) {
+					parent->children_head = removeNodeFromList(parent->children_head, moved_out_node);
+					sync_dir(parent, parent->mirror, target); //Unlink name & update mirror
+				}
+			}
 			
-			if (strcmp(event_name(event), "create") == 0) { //New entry created
+			if (strcmp(event_name(event), "create") == 0 || 
+				(strcmp(event_name(event), "moved into") == 0 && 
+				(!moved_out || event->cookie!=cookie) ) ) { //New entry created
 				printf("Entry created: %s\n", tpath);
 				if (stat(tpath, &stat_buf) < 0) {
 					perror("stat");
@@ -465,18 +478,40 @@ int main() {
 					printf("Removing file\n");
 					node->children_head = removeNodeFromList(node->children_head, result);
 					sync_dir(node, node->mirror, target);
-				}
+				} 
+
 			} else if (strcmp(event_name(event), "watch target deleted") == 0) {
 				printf("Directory deleted: %s\n", path);
 				treeNode * parent = node->parent;
 				if (inotify_rm_watch(fd, event->wd) == -1) //Remove from watch list
-					fail("rm_watch");
+					perror("rm_watch");
 				wd_to_node[event->wd] = NULL;
 				if (parent) {
 					parent->children_head = removeNodeFromList(parent->children_head,
 						node); //Remove node
 					sync_dir(parent, parent->mirror, target);
 				}
+			} else if (strcmp(event_name(event), "moved out") == 0) {
+				moved_out = 1;
+				cookie = event->cookie;
+				moved_out_node = searchListByName(node->children_head, target_name(event));
+			} else if (strcmp(event_name(event), "moved into") == 0) {
+				printf("Entry moved within src\n");
+				treeNode * parent = moved_out_node->parent;
+				if (parent) { //Detach from original parent
+					parent->children_head = removeNodeFromList(parent->children_head, moved_out_node);
+					sync_dir(parent, parent->mirror, target);
+				}
+				addChild(node, moved_out_node); //Attach to new position
+				sync_dir(node, node->mirror, target);
+			}
+
+			
+
+			if (strcmp(event_name(event), "moved out") != 0 && moved_out) { //Last event was moved out
+				moved_out = 0;
+				cookie = -1; 
+				moved_out_node = NULL; //Reset info
 			}
 
 			free(path);
