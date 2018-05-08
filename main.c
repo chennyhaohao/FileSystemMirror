@@ -458,6 +458,25 @@ int main() {
 					result->modified = 0;
 					sync_dir(node, node->mirror, target);
 				}
+			} else if (strcmp(event_name(event), "delete") == 0) {
+				printf("Entry deleted:%s\n", tpath);
+				treeNode * result = searchListByName(node->children_head, target_name(event));
+				if (result && !result->isDir) { //File removed
+					printf("Removing file\n");
+					node->children_head = removeNodeFromList(node->children_head, result);
+					sync_dir(node, node->mirror, target);
+				}
+			} else if (strcmp(event_name(event), "watch target deleted") == 0) {
+				printf("Directory deleted: %s\n", path);
+				treeNode * parent = node->parent;
+				if (inotify_rm_watch(fd, event->wd) == -1) //Remove from watch list
+					fail("rm_watch");
+				wd_to_node[event->wd] = NULL;
+				if (parent) {
+					parent->children_head = removeNodeFromList(parent->children_head,
+						node); //Remove node
+					sync_dir(parent, parent->mirror, target);
+				}
 			}
 
 			free(path);
