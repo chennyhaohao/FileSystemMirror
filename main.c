@@ -167,26 +167,6 @@ void r_copy(char * name, char * target, treeNode * root) { //Recursively copy di
 	closedir(dirp);
 }
 
-void addEntry(char * name, struct stat stat_buf, treeNode * globalRoot) {
-	if ((stat_buf.st_mode & S_IFMT) == S_IFDIR ) { //is directory
-		inode = makeInode(stat_buf.st_mtime, stat_buf.st_size);
-		node = makeTreeNode(dp->d_name, 1, stat_buf.st_ino, inode); //Create child treeNode
-		addChild(root, node); //Need to add child to the structure first for search
-		createTree(path, node, globalRoot);
-	} else { //is file, first search inode in whole tree
-		treeNode * result = searchTreeByInode(globalRoot, stat_buf.st_ino); 
-		if (result) { //Inode already exists
-			printf("Hard link detected: %s\n", nodePath(result));
-			inode = result->inode; //Give the same inode in case of hard link
-			//so that updates to the same file is automatically reflected in all nodes
-		} else {
-			inode = makeInode(stat_buf.st_mtime, stat_buf.st_size);
-		}
-		node = makeTreeNode(dp->d_name, 0, stat_buf.st_ino, inode);
-		addChild(root, node);
-	}
-}
-
 void createTree(char * name, treeNode * root, treeNode * globalRoot) { //Recursively copy directory
 	DIR * dirp = opendir(name);
 	if (dirp == NULL) {
@@ -384,6 +364,7 @@ int main() {
 	char buffer[EVENT_BUF_LEN];	//the buffer to use for reading the events
 	treeNode * node;
 	struct stat stat_buf;
+	myinode * inode;
 
 	fd = inotify_init();
 	if (fd < 0)
@@ -417,21 +398,43 @@ int main() {
 				event->wd, event_name(event), 
 				target_type(event), target_name(event), event->cookie);
 			node = wd_to_node[event->wd];
-			char * path = nodePath(node);
-			char * tpath = fpath(path, target_name(event));
+			char * path = nodePath(node), * tpath = NULL;
+			if (target_name(event))
+				tpath = fpath(path, target_name(event));
 			
-			if (strcmp(event_name(event_name), "create") == 0) {
-				printf("File created: %s\n", tpath);
+			if (strcmp(event_name(event), "create") == 0) { //New entry created
+				printf("Entry created: %s\n", tpath);
 				if (stat(tpath, &stat_buf) < 0) {
 					perror("stat");
 					exit(1);
 				}
 
+				if ((stat_buf.st_mode & S_IFMT) == S_IFDIR ) { //is directory
+					inode = makeInode(stat_buf.st_mtime, stat_buf.st_size);
+					treeNode *newNode = makeTreeNode(fpath("", 
+						target_name(event)), 1, stat_buf.st_ino, inode); //Create child treeNode
+					addChild(node, newNode); 
+				} else { //is file, first search inode in whole tree
+					treeNode * result = searchTreeByInode(src, stat_buf.st_ino); 
+					if (result) { //Inode already exists
+						printf("Hard link detected: %s\n", nodePath(result));
+						inode = result->inode; //Give the same inode in case of hard link
+						//so that updates to the same file is automatically reflected in all nodes
+					} else {
+						inode = makeInode(stat_buf.st_mtime, stat_buf.st_size);
+					}
+					treeNode *newNode = makeTreeNode(fpath("", target_name(event)), 
+						0, stat_buf.st_ino, inode);
+					addChild(node, newNode);
+				}
+				printTree(node);
+				sync_dir(node, node->mirror, target);
+
 			}
 
 			free(path);
-			free(tpath);
-
+			if (tpath)
+				free(tpath);
 
 			//advance read_ptr to the beginning of the next event
 			read_ptr += EVENT_SIZE + event->len;

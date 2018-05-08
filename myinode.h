@@ -29,7 +29,7 @@ struct treeNode { //FS treeNodes
 	treeNode * mirror;
 };
 
-char * fpath(char * dir, char * fname);
+char * fpath(const char * dir, const char * fname);
 treeNode * makeTreeNode(char * name, int isDir, ino_t src_inode, myinode * inode);
 myinode * makeInode(time_t mtime, off_t size);
 void addChild(treeNode * target, treeNode * newInode);

@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-char * fpath(char * dir, char * fname) {
+char * fpath(const char * dir, const char * fname) {
 
 	int len = strlen(dir) + strlen(fname);
 	char * dest = (char *) malloc(sizeof(char) * (len + 3) );
@@ -67,7 +67,7 @@ char * nodePath(treeNode * node) {
 void printTree(treeNode * root) {
 	char * name = nodePath(root);
 	if (root->isDir) {
-		printf("%s %ld/\n", name, root->src_inode);
+		printf("%s/ %ld\n", name, root->src_inode);
 	} else {
 		printf("%s %ld\n", name, root->src_inode);
 	}
